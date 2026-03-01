@@ -2,13 +2,15 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>A Special Invite for Ainne</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Coffee with Ainne</title>
+    <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
-    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <!-- React and Babel -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    <script src="https://unpkg.com/lucide@latest"></script>
+    
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=Inter:wght@400;500;700&display=swap');
         
@@ -17,23 +19,272 @@
             background-color: #EFE9E1;
             margin: 0;
             overflow: hidden;
-            touch-action: manipulation;
+            touch-action: none; /* Prevents screen bouncing on mobile */
         }
         .font-serif { font-family: 'Playfair Display', serif; }
 
         @keyframes bean-fall {
             0% { transform: translateY(0) scale(1) rotate(0deg); opacity: 1; }
-            100% { transform: translateY(80px) scale(0.6) rotate(90deg); opacity: 0; }
+            100% { transform: translateY(120px) scale(0.5) rotate(90deg); opacity: 0; }
         }
         .animate-bean { animation: bean-fall 0.8s ease-in forwards; }
         
-        /* Smooth Tear Animation */
-        @keyframes tear-fall {
-            0% { transform: translateY(var(--drag-y)) rotate(0deg); opacity: 1; }
-            100% { transform: translateY(600px) rotate(20deg); opacity: 0; }
+        .receipt-tear-anim {
+            transition: transform 0.6s cubic-bezier(0.45, 0, 0.55, 1), opacity 0.4s ease;
+            transform: translateY(800px) rotate(15deg);
+            opacity: 0;
         }
-        .tear-away {
-            animation: tear-fall 0.6s cubic-bezier(0.45, 0, 0.55, 1) forwards;
+
+        .coffee-wave {
+            transition: height 0.3s ease-out;
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        // --- CUSTOM SVG ICONS (Ensures visibility without external deps) ---
+        const CoffeeIcon = () => (
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 8h1a4 4 0 1 1 0 8h-1"/><path d="M3 8h14v9a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4Z"/><line x1="6" y1="2" x2="6" y2="4"/><line x1="10" y1="2" x2="10" y2="4"/><line x1="14" y1="2" x2="14" y2="4"/></svg>
+        );
+        const HeartIcon = ({fill = "none"}) => (
+            <svg width="60" height="60" viewBox="0 0 24 24" fill={fill} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></svg>
+        );
+
+        function App() {
+            const [step, setStep] = useState(0); 
+            const [grindProgress, setGrindProgress] = useState(0);
+            const [rotation, setRotation] = useState(0);
+            const [beans, setBeans] = useState([]);
+            const [brewProgress, setBrewProgress] = useState(0);
+            const [isPouring, setIsPouring] = useState(false);
+            const [dragY, setDragY] = useState(0);
+            const [isDragging, setIsDragging] = useState(false);
+            const [startY, setStartY] = useState(0);
+            const [isTorn, setIsTorn] = useState(false);
+            const [triggerTear, setTriggerTear] = useState(false);
+
+            const grinderRef = useRef(null);
+            const lastAngleRef = useRef(null);
+            const pourIntervalRef = useRef(null);
+
+            // --- STEP 1: GRINDING ---
+            const handleGrind = (x, y, isStart) => {
+                if (grindProgress >= 100 || !grinderRef.current) return;
+                const rect = grinderRef.current.getBoundingClientRect();
+                const centerX = rect.left + rect.width / 2;
+                const centerY = rect.top + rect.height / 2;
+                let angle = Math.atan2(y - centerY, x - centerX) * (180 / Math.PI);
+                if (angle < 0) angle += 360;
+
+                if (!isStart && lastAngleRef.current !== null) {
+                    let diff = angle - lastAngleRef.current;
+                    if (diff > 180) diff -= 360;
+                    if (diff < -180) diff += 360;
+                    setRotation(prev => prev + diff);
+                    
+                    if (Math.abs(diff) > 5) {
+                        setBeans(prev => [...prev.slice(-10), { id: Math.random(), x: (Math.random() - 0.5) * 50 }]);
+                    }
+                    setGrindProgress(prev => {
+                        const next = prev + Math.abs(diff) / 15;
+                        if (next >= 100) { setTimeout(() => setStep(2), 1000); return 100; }
+                        return next;
+                    });
+                }
+                lastAngleRef.current = angle;
+            };
+
+            // --- STEP 2: BREWING ---
+            const startPouring = () => {
+                if (brewProgress >= 100) return;
+                setIsPouring(true);
+                pourIntervalRef.current = setInterval(() => {
+                    setBrewProgress(p => {
+                        if (p >= 100) { clearInterval(pourIntervalRef.current); setTimeout(() => setStep(3), 1200); return 100; }
+                        return p + 1.5;
+                    });
+                }, 50);
+            };
+
+            // --- STEP 4: TEARING ---
+            const handleTearStart = (y) => {
+                if (isTorn || triggerTear) return;
+                setIsDragging(true);
+                setStartY(y);
+            };
+
+            const handleTearMove = (y) => {
+                if (!isDragging) return;
+                const delta = y - startY;
+                if (delta > 0) setDragY(delta);
+                if (delta > 160) {
+                    setTriggerTear(true);
+                    setIsDragging(false);
+                    setTimeout(() => setIsTorn(true), 600);
+                }
+            };
+
+            return (
+                <div className="fixed inset-0 flex flex-col items-center justify-center p-6 select-none overflow-hidden">
+                    
+                    {/* 0. WELCOME */}
+                    {step === 0 && (
+                        <div className="text-center space-y-8 max-w-sm animate-in fade-in duration-700">
+                            <div className="w-24 h-24 bg-[#D9C8B4] rounded-full flex items-center justify-center mx-auto shadow-inner">
+                                <CoffeeIcon />
+                            </div>
+                            <h1 className="text-4xl font-serif font-bold text-[#3E2723]">Hi Ainne!</h1>
+                            <p className="text-xl text-[#6D4C41]">I think it's time for coffee and coworking. Let's make a brew first.</p>
+                            <button 
+                                onClick={() => setStep(1)} 
+                                className="bg-[#5C4D42] text-white px-10 py-4 rounded-full text-xl font-bold shadow-xl active:scale-95 transition-all"
+                            >Start the Day ☕️</button>
+                        </div>
+                    )}
+
+                    {/* 1. GRIND */}
+                    {step === 1 && (
+                        <div className="flex flex-col items-center space-y-10 w-full max-w-sm">
+                            <div className="text-center">
+                                <h2 className="text-2xl font-serif font-bold text-[#3E2723]">1. Grind the beans</h2>
+                                <p className="text-sm text-[#8B7355]">Spin the handle with your finger!</p>
+                            </div>
+                            <div 
+                                ref={grinderRef}
+                                className="relative w-64 h-64 bg-[#D9C8B4] rounded-full border-8 border-[#C3B099] flex items-center justify-center shadow-inner"
+                                onMouseDown={(e) => handleGrind(e.clientX, e.clientY, true)}
+                                onMouseMove={(e) => handleGrind(e.clientX, e.clientY, false)}
+                                onMouseUp={() => lastAngleRef.current = null}
+                                onTouchStart={(e) => handleGrind(e.touches[0].clientX, e.touches[0].clientY, true)}
+                                onTouchMove={(e) => handleGrind(e.touches[0].clientX, e.touches[0].clientY, false)}
+                                onTouchEnd={() => lastAngleRef.current = null}
+                            >
+                                <div className="absolute w-full h-full pointer-events-none" style={{ transform: `rotate(${rotation}deg)` }}>
+                                    <div className="absolute top-1/2 left-1/2 w-28 h-4 bg-[#5C4D42] origin-left -translate-y-1/2 rounded-full shadow-md" />
+                                    <div className="absolute top-1/2 left-[calc(50%+6.5rem)] w-10 h-10 bg-[#3E2723] rounded-full -translate-y-1/2 -translate-x-1/2 border-2 border-[#5C4D42]" />
+                                </div>
+                                <div className="w-24 h-24 bg-[#8B7355] rounded-full shadow-md" />
+                                {/* Falling Beans */}
+                                <div className="absolute top-full mt-4 w-full flex justify-center">
+                                    {beans.map(b => <div key={b.id} className="absolute w-2 h-3 bg-[#3E2723] rounded-full animate-bean" style={{ left: `calc(50% + ${b.x}px)` }} />)}
+                                </div>
+                            </div>
+                            <div className="w-full bg-white h-4 rounded-full overflow-hidden border border-[#D9C8B4] shadow-sm">
+                                <div className="h-full bg-[#5C4D42] transition-all duration-200" style={{ width: `${grindProgress}%` }} />
+                            </div>
+                        </div>
+                    )}
+
+                    {/* 2. BREW */}
+                    {step === 2 && (
+                        <div className="flex flex-col items-center space-y-12">
+                            <h2 className="text-3xl font-serif font-bold text-[#3E2723]">2. The Pour Over</h2>
+                            <div className="relative w-40 h-56 flex flex-col items-center justify-end">
+                                {/* Stream */}
+                                <div className={`w-2 bg-blue-300 absolute top-0 transition-all duration-500 ${isPouring ? 'h-32 opacity-60' : 'h-0 opacity-0'}`} />
+                                {/* Filter */}
+                                <div className="relative z-10 w-32 h-20 bg-white/40 border-2 border-white rounded-b-3xl mb-4 overflow-hidden">
+                                    <div className="absolute bottom-0 w-full bg-[#5C4D42] transition-all" style={{ height: `${20 + (brewProgress * 0.4)}%` }} />
+                                </div>
+                                {/* Mug */}
+                                <div className="relative w-32 h-24 bg-white rounded-b-[2rem] shadow-xl border-b-4 border-gray-200 overflow-hidden">
+                                    <div className="absolute -right-6 top-4 w-10 h-12 border-4 border-white rounded-r-2xl" />
+                                    <div className="bg-[#3E2723] w-full absolute bottom-0 coffee-wave" style={{ height: `${brewProgress}%` }} />
+                                </div>
+                            </div>
+                            <button 
+                                onMouseDown={startPouring} onMouseUp={() => setIsPouring(false)} onTouchStart={(e) => { e.preventDefault(); startPouring(); }} onTouchEnd={() => setIsPouring(false)}
+                                className={`px-12 py-5 rounded-full font-bold text-white shadow-2xl transition-all active:scale-95 ${brewProgress >= 100 ? 'bg-green-600' : 'bg-[#5C4D42]'}`}
+                            >{brewProgress >= 100 ? "Perfectly Brewed!" : "Hold to Pour"}</button>
+                        </div>
+                    )}
+
+                    {/* 3. BARISTA */}
+                    {step === 3 && (
+                        <div className="text-center space-y-10 flex flex-col items-center animate-in zoom-in duration-500">
+                            <div className="bg-white p-10 rounded-[3rem] shadow-2xl relative border-2 border-[#D9C8B4] max-w-[300px]">
+                                <p className="text-3xl font-serif font-bold text-[#3E2723] leading-tight">
+                                    "Order for... <br/><span className="italic text-[#8B7355]">Ainne?</span>"
+                                </p>
+                                <div className="absolute -bottom-4 left-1/2 w-8 h-8 bg-white border-b-2 border-r-2 border-[#D9C8B4] transform -translate-x-1/2 rotate-45" />
+                            </div>
+                            <button onClick={() => setStep(4)} className="bg-[#5C4D42] text-white px-12 py-4 rounded-full font-bold shadow-xl text-xl hover:scale-105 transition-all">That's me! 🙋‍♀️</button>
+                        </div>
+                    )}
+
+                    {/* 4. REVEAL */}
+                    {step === 4 && (
+                        <div 
+                            className="relative w-full max-w-xs flex flex-col items-center h-[550px]"
+                            onMouseMove={(e) => handleTearMove(e.clientY)}
+                            onMouseUp={() => setIsDragging(false)}
+                            onTouchMove={(e) => handleTearMove(e.touches[0].clientY)}
+                            onTouchEnd={() => setIsDragging(false)}
+                        >
+                            <h2 className="text-xl font-serif font-bold text-[#3E2723] mb-8 animate-pulse">Drag receipt down to reveal</h2>
+                            
+                            {/* Cup Underneath */}
+                            <div className="absolute top-32 flex flex-col items-center">
+                                <div className="relative w-52 h-64 bg-white rounded-b-[3rem] shadow-2xl border-2 border-gray-100 flex flex-col items-center pt-20">
+                                    <div className="absolute -top-3 w-[105%] h-10 bg-gray-50 rounded-t-2xl border border-gray-200" />
+                                    <div className="w-full h-24 bg-[#C89B7B] border-y-2 border-[#a67b5c] flex items-center justify-center">
+                                        <span className="text-5xl font-bold text-gray-800 opacity-60 italic" style={{ fontFamily: 'cursive' }}>Ainne</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Tearable Receipt */}
+                            {!isTorn && (
+                                <div 
+                                    className={`absolute top-16 w-68 bg-white p-8 shadow-2xl border border-gray-100 font-mono z-30 cursor-grab active:cursor-grabbing ${triggerTear ? 'receipt-tear-anim' : ''}`}
+                                    style={{ transform: triggerTear ? undefined : `translateY(${dragY}px) rotate(${dragY * 0.02}deg)` }}
+                                    onMouseDown={(e) => handleTearStart(e.clientY)}
+                                    onTouchStart={(e) => handleTearStart(e.touches[0].clientY)}
+                                >
+                                    <div className="text-center border-b-2 border-dashed border-gray-200 pb-4 mb-4">
+                                        <h3 className="font-bold tracking-widest text-lg">COWORKING</h3>
+                                    </div>
+                                    <div className="space-y-4 text-sm">
+                                        <div className="flex justify-between"><span>DATE</span><span className="font-bold">MARCH 23</span></div>
+                                        <div className="flex justify-between"><span>TOTAL</span><span className="font-bold">MY TREAT</span></div>
+                                    </div>
+                                    <p className="text-center mt-12 text-[10px] text-gray-400">PULL DOWN TO ACCEPT</p>
+                                    <div className="absolute bottom-0 left-0 w-full h-3" style={{ backgroundSize: '12px 12px', backgroundImage: 'radial-gradient(circle at 6px 12px, transparent 6px, white 6.5px)' }} />
+                                </div>
+                            )}
+
+                            {isTorn && (
+                                <div className="absolute bottom-0 w-full flex justify-center animate-in slide-in-from-bottom duration-500">
+                                    <button onClick={() => setStep(5)} className="bg-[#3E2723] text-white px-12 py-5 rounded-full text-2xl font-bold shadow-2xl hover:scale-105 active:scale-95 transition-all">Hell Yes! 🎉</button>
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {/* 5. DONE */}
+                    {step === 5 && (
+                        <div className="text-center space-y-8 animate-in zoom-in duration-700">
+                            <HeartIcon fill="#ef4444" />
+                            <h2 className="text-5xl font-serif font-bold text-[#3E2723]">It's a Date!</h2>
+                            <p className="text-2xl text-[#6D4C41]">See you on <span className="font-bold underline">March 23</span>.</p>
+                            <p className="text-sm text-gray-400 italic pt-12">Screenshot this and send it to me!</p>
+                        </div>
+                    )}
+
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
+
         }
     </style>
 </head>
